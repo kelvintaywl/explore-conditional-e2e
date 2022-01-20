@@ -26,17 +26,27 @@ jobs:
       - image: cimg/base:stable
     resource_class: medium
     steps:
-      - checkout
-      - setup_remote_docker:
-          version: 20.10.6
-      - run:
-          command: |
-            cd << parameters.path >>
-            # assumes Dockerfile in path
-            docker build -t << parameters.namespace >>/<< parameters.image-tag >> .
-      - run:
-          command: |
-            docker image ls
+      - when:
+          condition: << parameters.should-run >>
+          steps:
+            - checkout
+            - setup_remote_docker:
+                version: 20.10.6
+            - run:
+                name: 'Build image: << parameters.namespace >>/<< parameters.image-tag >>'
+                command: |
+                  cd << parameters.path >>
+                  # assumes Dockerfile in path
+                  docker build -t << parameters.namespace >>/<< parameters.image-tag >> .
+            - run:
+                command: |
+                  docker image ls
+      - unless:
+          condition: << parameters.should-run >>
+          steps:
+            - run:
+                name: Noop
+                command: echo "noop"
 
   determine-integration-should-run:
     # lightweight gatekeeper
