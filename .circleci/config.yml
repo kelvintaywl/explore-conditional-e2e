@@ -1,0 +1,96 @@
+version: 2.1
+
+parameters:
+  should-build-img1:
+    type: boolean
+    default: false
+  should-build-img2:
+    type: boolean
+    default: false
+
+jobs:
+  build-image:
+    parameters:
+      should-run:
+        type: boolean
+        default: false
+      namespace:
+        type: string
+        default: kelvintaywl
+      image-tag:
+        type: string
+      path:
+        type: string
+        # no default: must be supplied
+    docker:
+      - image: cimg/base:stable
+    resource_class: medium
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: 20.10.6
+      - run:
+          command: |
+            cd << parameters.path >>
+            # assumes Dockerfile in path
+            docker build -t << parameters.namespace >>/<< parameters.image-tag >> .
+      - run:
+          command: |
+            docker image ls
+
+  determine-integration-should-run:
+    # lightweight gatekeeper
+    # stops the ci workflow early unless ALL images were built
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - run:
+          command: |
+            echo "the next step will cancel workflow unless ALL images built"
+      # https://circleci.com/docs/2.0/reusing-config/#the-unless-step
+      - unless:
+          condition:
+            and:
+              - << pipeline.parameters.should-build-img1 >>
+              - << pipeline.parameters.should-build-img2 >>
+          steps:
+            - run:
+                # IMPORTANT: CIRCLE_TOKEN injected as a project env var
+                # NOTE: `circleci step halt` would have been great, as it stops the job with a green build,
+                # However, it only stops the current job, not the workflow itself.
+                name: Cancel current workflow
+                command: |
+                  echo "cancelling current workflow ${CIRCLE_WORKFLOW_ID}...."
+                  curl --request POST \
+                    --url "https://circleci.com/api/v2/workflow/${CIRCLE_WORKFLOW_ID}/cancel" \
+                    --header "Circle-Token: ${CIRCLE_TOKEN}"
+
+  mock-integration:
+    machine:
+      image: ubuntu-2004:202010-01
+    steps:
+      - run:
+          command: |
+            echo "Mock integration tests!"
+
+workflows:
+  ci:
+    jobs:
+      - build-image:
+          name: build-image-img1
+          should-run: << pipeline.parameters.should-build-img1 >>
+          image-tag: 'fancy-nginx:1'
+          path: img1
+      - build-image:
+          name: build-image-img2
+          should-run: << pipeline.parameters.should-build-img2 >>
+          image-tag: 'fancy-nginx:2'
+          path: img2
+      - determine-integration-should-run:
+          requires:
+            - build-image-img1
+            - build-image-img2
+      - mock-integration:
+          # will not run if determine-integration-should-run fails
+          requires:
+            - determine-integration-should-run
